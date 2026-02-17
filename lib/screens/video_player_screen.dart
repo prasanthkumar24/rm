@@ -42,7 +42,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindi
     try {
       await WakelockPlus.enable();
     } catch (e) {
-      print('Failed to enable wakelock on init: $e');
+      debugPrint('Failed to enable wakelock on init: $e');
     }
   }
 
@@ -57,7 +57,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindi
     try {
       await WakelockPlus.enable();
     } catch (e) {
-      print('Failed to enable wakelock: $e');
+      debugPrint('Failed to enable wakelock: $e');
     }
     _enableSecureMode();
     if (_videoPlayerController.value.hasError) {
@@ -84,7 +84,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindi
           }
         }
       } catch (e) {
-        print('Screen recording check failed: $e');
+        debugPrint('Screen recording check failed: $e');
       }
     });
   }
@@ -122,7 +122,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindi
         widget.user.id,
       );
 
-      print('Initializing video with URL: $_finalVideoUrl');
+      debugPrint('Initializing video with URL: $_finalVideoUrl');
 
       // 2. Initialize Video Player
       _videoPlayerController = VideoPlayerController.networkUrl(
@@ -196,7 +196,7 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> with WidgetsBindi
         });
       }
     } catch (e) {
-      print('Video Initialization Error: $e');
+      debugPrint('Video Initialization Error: $e');
       if (mounted) {
         setState(() {
           _errorMessage = 'Video Unavailable';

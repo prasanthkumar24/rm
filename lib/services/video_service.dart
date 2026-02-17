@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/video_model.dart';
@@ -22,14 +23,14 @@ class VideoService {
         throw Exception('Failed to load libraries: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching libraries: $e');
+      debugPrint('Error fetching libraries: $e');
       rethrow;
     }
   }
 
   Future<List<VideoModel>> getLibraryItems(String serverUrl, String parentId, String accessToken) async {
     // Broadened IncludeItemTypes to support Movies, Episodes, and generic Videos
-    final url = Uri.parse('$serverUrl/Items?ParentId=$parentId&IncludeItemTypes=Movie,Video,Episode&Fields=Overview,RunTimeTicks&Recursive=true&api_key=$accessToken');
+    final url = Uri.parse('$serverUrl/Items?ParentId=$parentId&IncludeItemTypes=Movie,Video,Episode&Fields=Overview,RunTimeTicks,Taglines&Recursive=true&api_key=$accessToken');
     
     try {
       final response = await http.get(url);
@@ -38,10 +39,19 @@ class VideoService {
         final data = json.decode(response.body);
         final List<dynamic> items = data['Items'] ?? [];
         
+        // Debug logging to check available fields
+        if (items.isNotEmpty) {
+          debugPrint('First item raw data: ${items.first}');
+        }
+
         return items.map((item) {
           final String id = item['Id'];
           final String title = item['Name'] ?? 'Unknown Title';
-          final String description = item['Overview'] ?? '';
+          String description = item['Overview'] ?? '';
+          
+          if (description.isEmpty && item['Taglines'] != null && (item['Taglines'] as List).isNotEmpty) {
+             description = (item['Taglines'] as List).join('. ');
+          }
           
           // HLS URL (Fallback/Quick)
           // We will generate a more robust one in VideoPlayerScreen using getPlaybackUrl
@@ -68,7 +78,7 @@ class VideoService {
         throw Exception('Failed to load items: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching items: $e');
+      debugPrint('Error fetching items: $e');
       rethrow;
     }
   }
@@ -76,7 +86,7 @@ class VideoService {
   Future<List<VideoModel>> getAllVideos(String serverUrl, String userId, String accessToken) async {
     // Fetch all recursive items for the user (Movies, Episodes, Videos)
     // Sort by DateCreated descending to show latest first
-    final url = Uri.parse('$serverUrl/Users/$userId/Items?IncludeItemTypes=Movie,Video,Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Fields=Overview,RunTimeTicks&api_key=$accessToken');
+    final url = Uri.parse('$serverUrl/Users/$userId/Items?IncludeItemTypes=Movie,Video,Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Fields=Overview,RunTimeTicks,Taglines&api_key=$accessToken');
     
     try {
       final response = await http.get(url);
@@ -85,10 +95,19 @@ class VideoService {
         final data = json.decode(response.body);
         final List<dynamic> items = data['Items'] ?? [];
         
+        // Debug logging to check available fields
+        if (items.isNotEmpty) {
+          debugPrint('First item raw data: ${items.first}');
+        }
+        
         return items.map((item) {
           final String id = item['Id'];
           final String title = item['Name'] ?? 'Unknown Title';
-          final String description = item['Overview'] ?? '';
+          String description = item['Overview'] ?? '';
+          
+          if (description.isEmpty && item['Taglines'] != null && (item['Taglines'] as List).isNotEmpty) {
+             description = (item['Taglines'] as List).join('. ');
+          }
           
           // HLS URL (Fallback/Quick)
           final String sessionId = DateTime.now().millisecondsSinceEpoch.toString();
@@ -114,7 +133,7 @@ class VideoService {
         throw Exception('Failed to load all videos: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error fetching all videos: $e');
+      debugPrint('Error fetching all videos: $e');
       rethrow;
     }
   }
@@ -185,7 +204,7 @@ class VideoService {
         throw Exception('Failed to get playback info: ${response.statusCode}');
       }
     } catch (e) {
-      print('Error getting playback URL: $e');
+      debugPrint('Error getting playback URL: $e');
       // Fallback to simple URL if PlaybackInfo fails
       return '$serverUrl/Videos/$itemId/master.m3u8?MediaSourceId=$itemId&api_key=$accessToken';
     }

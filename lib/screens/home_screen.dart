@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:google_fonts/google_fonts.dart';
 import '../models/user_model.dart';
 import '../models/video_model.dart';
 import '../models/library_model.dart';
@@ -99,6 +100,8 @@ class _HomeScreenState extends State<HomeScreen> {
           unselectedItemColor: mutedIconColor,
           showUnselectedLabels: true,
           type: BottomNavigationBarType.fixed,
+          selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
+          unselectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.calendar_today), // Or similar "Today" icon
@@ -125,48 +128,72 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeTab() {
+    final double statusBarHeight = MediaQuery.of(context).padding.top;
+    
     return BlocProvider(
       create: (context) => VideoCubit(context.read<VideoService>())
         ..loadAllVideos(widget.user.serverUrl, widget.user.id, widget.user.accessToken),
       child: Column(
         children: [
           // Header Banner
-          // Increased height and ensuring it covers the status bar area
-          SizedBox(
-            height: 120, // Increased to cover status bar
+          Container(
+            height: statusBarHeight + 100, // Reduced height as requested
             width: double.infinity,
+            decoration: const BoxDecoration(
+              color: Color(0xFF002B38),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black26,
+                  blurRadius: 10,
+                  offset: Offset(0, 5),
+                ),
+              ],
+            ),
             child: Stack(
               children: [
-                // Subtle gradient for header background
-                Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.black.withOpacity(0.6), // Darker at top for status bar readability
-                        Colors.transparent,
-                      ],
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                    ),
+                // Header Image filling the whole area
+                Positioned.fill(
+                  child: Image.asset(
+                    'assets/header.jpg',
+                    fit: BoxFit.cover, // Ensures image covers the entire header area
+                    errorBuilder: (context, error, stackTrace) {
+                       return Container(
+                         decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [Color(0xFF002B38), Color(0xFF00151C)],
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                            ),
+                         ),
+                         child: Center(
+                           child: Text(
+                             'RESURRECTION\nMINISTRIES', 
+                             textAlign: TextAlign.center,
+                             style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                               color: Colors.white,
+                               fontWeight: FontWeight.bold,
+                               fontFamily: 'Serif',
+                               letterSpacing: 1.2,
+                             ),
+                           ),
+                         ),
+                       );
+                    },
                   ),
                 ),
-                Positioned(
-                   top: 40, // Push content down to avoid status bar overlap
-                   left: 0,
-                   right: 0,
-                   bottom: 0,
-                   child: Center(
-                    child: Image.asset(
-                      'assets/header.jpg',
-                      height: 60,
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) {
-                         // Fallback if asset missing
-                         return Text(
-                           'RM LIVE', 
-                           style: Theme.of(context).textTheme.headlineMedium,
-                         );
-                      },
+                
+                // Optional: Subtle gradient overlay for better text contrast if needed
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [
+                          Colors.black.withOpacity(0.3),
+                          Colors.transparent,
+                        ],
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                      ),
                     ),
                   ),
                 ),
@@ -213,7 +240,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 10),
                         Text(
                           'Watch',
-                          style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                          style: GoogleFonts.poppins(
+                            textStyle: Theme.of(context).textTheme.displaySmall,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -270,9 +298,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 Expanded(
                   child: Text(
                     video.title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    style: GoogleFonts.poppins(
+                      textStyle: Theme.of(context).textTheme.titleMedium,
                       color: Colors.white70,
-                      fontFamily: 'Sans',
+                      fontWeight: FontWeight.w600, // SemiBold
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -286,8 +315,9 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(
               video.title,
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w500,
+              style: GoogleFonts.poppins(
+                textStyle: Theme.of(context).textTheme.headlineSmall,
+                fontWeight: FontWeight.w600, // SemiBold
               ),
             ),
           ),
@@ -322,9 +352,11 @@ class _HomeScreenState extends State<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Text(
               video.description.isNotEmpty ? video.description : 'No description available.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              style: GoogleFonts.poppins(
+                textStyle: Theme.of(context).textTheme.bodyMedium,
                 color: Colors.white70,
                 height: 1.5,
+                fontWeight: FontWeight.w400, // Regular
               ),
               maxLines: 3,
               overflow: TextOverflow.ellipsis,
@@ -349,11 +381,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   );
                 },
                 icon: const Icon(Icons.play_arrow, color: Colors.white),
-                label: const Text(
+                label: Text(
                   'Watch Now',
-                  style: TextStyle(
+                  style: GoogleFonts.poppins(
                     fontSize: 16,
-                    fontWeight: FontWeight.bold,
+                    fontWeight: FontWeight.bold, // Bold
                     color: Colors.white,
                   ),
                 ),
@@ -415,7 +447,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Center(
                     child: Text(
                       'Library',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+                      style: GoogleFonts.poppins(
+                        textStyle: Theme.of(context).textTheme.headlineSmall,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
                 ),

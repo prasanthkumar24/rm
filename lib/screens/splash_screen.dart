@@ -3,6 +3,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import '../models/video_model.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
+import 'mobile_login_screen.dart';
 import 'home_screen.dart';
 import 'login_screen.dart';
 
@@ -35,18 +36,19 @@ class _SplashScreenState extends State<SplashScreen> {
       final authService = AuthService();
       User? user = await authService.getSession();
 
-      // If no session exists, perform auto-login
-      if (user == null) {
-        try {
-          user = await authService.login(
-            'https://rmvideo.in',
-            'Appuser',
-            'Smiles123\$',
-          );
-        } catch (e) {
-          debugPrint('Auto-login failed: $e');
+      if (user != null) {
+        // Verify if the session is still valid on the server
+        final isValid = await authService.validateSession(user);
+        if (!isValid) {
+          // Session is invalid (expired or revoked), clear it
+          await authService.logout();
+          user = null;
         }
       }
+
+      // If no valid session exists, we don't auto-login here anymore
+      // because we want the user to go through the Mobile OTP flow.
+      // The auto-login to Jellyfin happens inside OtpVerificationScreen.
 
       if (mounted) {
         if (user != null) {
@@ -54,8 +56,9 @@ class _SplashScreenState extends State<SplashScreen> {
             MaterialPageRoute(builder: (_) => HomeScreen(user: user!)),
           );
         } else {
+          // If no session, go to Mobile Login instead of Jellyfin Login
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            MaterialPageRoute(builder: (_) => const MobileLoginScreen()),
           );
         }
       }
@@ -63,7 +66,7 @@ class _SplashScreenState extends State<SplashScreen> {
       debugPrint('Initialization failed: $e');
       if (mounted) {
          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            MaterialPageRoute(builder: (_) => const MobileLoginScreen()),
           );
       }
     }
