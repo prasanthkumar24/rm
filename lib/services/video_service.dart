@@ -13,7 +13,7 @@ class VideoService {
       final response = await http.get(
         url,
         headers: {'X-Emby-Token': accessToken},
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -30,20 +30,16 @@ class VideoService {
 
   Future<List<VideoModel>> getLibraryItems(String serverUrl, String parentId, String accessToken) async {
     // Broadened IncludeItemTypes to support Movies, Episodes, and generic Videos
-    final url = Uri.parse('$serverUrl/Items?ParentId=$parentId&IncludeItemTypes=Movie,Video,Episode&Fields=Overview,RunTimeTicks,Taglines&Recursive=true&api_key=$accessToken');
+    // Added MediaSources to determine if Direct Play (Static Stream) is possible
+    final url = Uri.parse('$serverUrl/Items?ParentId=$parentId&IncludeItemTypes=Movie,Video,Episode&Fields=Overview,RunTimeTicks,Taglines,MediaSources&Recursive=true&api_key=$accessToken');
     
     try {
-      final response = await http.get(url);
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List<dynamic> items = data['Items'] ?? [];
         
-        // Debug logging to check available fields
-        if (items.isNotEmpty) {
-          debugPrint('First item raw data: ${items.first}');
-        }
-
         return items.map((item) {
           final String id = item['Id'];
           final String title = item['Name'] ?? 'Unknown Title';
@@ -53,9 +49,10 @@ class VideoService {
              description = (item['Taglines'] as List).join('. ');
           }
           
-          // HLS URL (Fallback/Quick)
-          // We will generate a more robust one in VideoPlayerScreen using getPlaybackUrl
           final String sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+          
+          // Using a placeholder URL for lists, but the actual playback URL 
+          // will be determined in VideoPlayerScreen using getPlaybackUrl
           final String videoStreamUrl = '$serverUrl/Videos/$id/master.m3u8?MediaSourceId=$id&PlaySessionId=$sessionId&api_key=$accessToken';
           
           // Thumbnail URL
@@ -85,20 +82,15 @@ class VideoService {
 
   Future<List<VideoModel>> getAllVideos(String serverUrl, String userId, String accessToken) async {
     // Fetch all recursive items for the user (Movies, Episodes, Videos)
-    // Sort by DateCreated descending to show latest first
-    final url = Uri.parse('$serverUrl/Users/$userId/Items?IncludeItemTypes=Movie,Video,Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Fields=Overview,RunTimeTicks,Taglines&api_key=$accessToken');
+    // Added MediaSources to determine if Direct Play (Static Stream) is possible
+    final url = Uri.parse('$serverUrl/Users/$userId/Items?IncludeItemTypes=Movie,Video,Episode&Recursive=true&SortBy=DateCreated&SortOrder=Descending&Fields=Overview,RunTimeTicks,Taglines,MediaSources&api_key=$accessToken');
     
     try {
-      final response = await http.get(url);
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final List<dynamic> items = data['Items'] ?? [];
-        
-        // Debug logging to check available fields
-        if (items.isNotEmpty) {
-          debugPrint('First item raw data: ${items.first}');
-        }
         
         return items.map((item) {
           final String id = item['Id'];
@@ -109,8 +101,10 @@ class VideoService {
              description = (item['Taglines'] as List).join('. ');
           }
           
-          // HLS URL (Fallback/Quick)
           final String sessionId = DateTime.now().millisecondsSinceEpoch.toString();
+          
+          // Using a placeholder URL for lists, but the actual playback URL 
+          // will be determined in VideoPlayerScreen using getPlaybackUrl
           final String videoStreamUrl = '$serverUrl/Videos/$id/master.m3u8?MediaSourceId=$id&PlaySessionId=$sessionId&api_key=$accessToken';
           
           // Thumbnail URL
@@ -130,16 +124,15 @@ class VideoService {
           );
         }).toList();
       } else {
-        throw Exception('Failed to load all videos: ${response.statusCode}');
+        throw Exception('Failed to load videos: ${response.statusCode}');
       }
     } catch (e) {
-      debugPrint('Error fetching all videos: $e');
+      debugPrint('Error fetching videos: $e');
       rethrow;
     }
   }
 
   Future<String> getPlaybackUrl(String serverUrl, String itemId, String accessToken, String userId) async {
-    // 1. Call PlaybackInfo to get MediaSourceId and capabilities
     final playbackInfoUrl = Uri.parse('$serverUrl/Items/$itemId/PlaybackInfo?UserId=$userId');
     
     try {
@@ -152,25 +145,15 @@ class VideoService {
         },
         body: json.encode({
           'DeviceProfile': {
-            'MaxStreamingBitrate': 140000000,
+            'MaxStreamingBitrate': 20000000,
             'MusicStreamingTranscodingBitrate': 192000,
             'DirectPlayProfiles': [
-              {'Container': 'mp4,m4v', 'Type': 'Video', 'VideoCodec': 'h264,hevc,vp9,av1', 'AudioCodec': 'aac,mp3,opus,flac,vorbis'},
-              {'Container': 'mkv', 'Type': 'Video', 'VideoCodec': 'h264,hevc,vp9,av1', 'AudioCodec': 'aac,mp3,opus,flac,vorbis'}
+              {'Container': 'mp4', 'Type': 'Video', 'VideoCodec': 'h264', 'AudioCodec': 'aac'}
             ],
-            'TranscodingProfiles': [
-              {
-                'Container': 'ts',
-                'Type': 'Video',
-                'AudioCodec': 'aac,mp3,opus',
-                'VideoCodec': 'h264',
-                'Context': 'Streaming',
-                'Protocol': 'hls'
-              }
-            ]
+            'TranscodingProfiles': []
           }
         }),
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
@@ -180,32 +163,135 @@ class VideoService {
           throw Exception('No media sources found');
         }
 
-        final mediaSource = mediaSources.first;
-        final String mediaSourceId = mediaSource['Id'];
-        final String playSessionId = data['PlaySessionId'] ?? DateTime.now().millisecondsSinceEpoch.toString();
-        
-        // Construct the HLS URL with all necessary parameters
-        // Optimized for mobile streaming: H.264, AAC, 8Mbps video, 192kbps audio, 30fps
-        return '$serverUrl/Videos/$itemId/master.m3u8'
+        Map<String, dynamic>? directMp4Source;
+        for (final src in mediaSources) {
+          final container = (src['Container'] ?? '').toString().toLowerCase();
+          final supportsDirectPlay = src['SupportsDirectPlay'] == true;
+          if (container == 'mp4' && supportsDirectPlay) {
+            final streams = (src['MediaStreams'] as List<dynamic>? ?? []);
+            final hasH264 = streams.any((s) =>
+                (s['Type'] ?? '') == 'Video' &&
+                (s['Codec'] ?? '').toString().toLowerCase() == 'h264');
+            final hasAac = streams.any((s) =>
+                (s['Type'] ?? '') == 'Audio' &&
+                (s['Codec'] ?? '').toString().toLowerCase() == 'aac');
+            if (hasH264 && hasAac) {
+              directMp4Source = Map<String, dynamic>.from(src);
+              break;
+            }
+          }
+        }
+
+        if (directMp4Source != null) {
+          final String mediaSourceId = directMp4Source['Id'];
+          final String finalUrl = '$serverUrl/Videos/$itemId/stream'
+              '?static=true'
+              '&MediaSourceId=$mediaSourceId'
+              '&api_key=$accessToken';
+          debugPrint('Direct Play URL generated: $finalUrl');
+          return finalUrl;
+        }
+
+        // Fallback to server-decided manifest without forcing codecs/bitrates
+        final fallbackSource = mediaSources.first;
+        final String mediaSourceId = fallbackSource['Id'];
+        final String fallbackUrl = '$serverUrl/Videos/$itemId/master.m3u8'
             '?MediaSourceId=$mediaSourceId'
-            '&PlaySessionId=$playSessionId'
-            '&api_key=$accessToken'
-            '&VideoCodec=h264'
-            '&AudioCodec=aac'
-            '&VideoBitrate=8000000'
-            '&AudioBitrate=192000'
-            '&MaxFramerate=30'
-            '&TranscodingContainer=ts'
-            '&SegmentContainer=ts'
-            '&MinSegments=1'
-            '&BreakOnNonKeyFrames=True'
-            '&ManifestSubtitles=vtt'; // Request subtitles in manifest if available
+            '&api_key=$accessToken';
+        debugPrint('Direct Play not possible, fallback to HLS: $fallbackUrl');
+        return fallbackUrl;
       } else {
         throw Exception('Failed to get playback info: ${response.statusCode}');
       }
     } catch (e) {
       debugPrint('Error getting playback URL: $e');
-      // Fallback to simple URL if PlaybackInfo fails
+      return '$serverUrl/Videos/$itemId/master.m3u8?MediaSourceId=$itemId&api_key=$accessToken';
+    }
+  }
+
+  Future<String> getQualityPlaybackUrl({
+    required String serverUrl,
+    required String itemId,
+    required String accessToken,
+    required String userId,
+    required String quality, // '240p','360p','480p','720p','1080p'
+  }) async {
+    final playbackInfoUrl = Uri.parse('$serverUrl/Items/$itemId/PlaybackInfo?UserId=$userId');
+    int maxWidth = 854;
+    int maxHeight = 480;
+    int videoBitrate = 1500000;
+    switch (quality) {
+      case '240p':
+        maxWidth = 426; maxHeight = 240; videoBitrate = 400000;
+        break;
+      case '360p':
+        maxWidth = 640; maxHeight = 360; videoBitrate = 800000;
+        break;
+      case '480p':
+        maxWidth = 854; maxHeight = 480; videoBitrate = 1500000;
+        break;
+      case '720p':
+        maxWidth = 1280; maxHeight = 720; videoBitrate = 3000000;
+        break;
+      case '1080p':
+        maxWidth = 1920; maxHeight = 1080; videoBitrate = 6000000;
+        break;
+    }
+
+    try {
+      final response = await http.post(
+        playbackInfoUrl,
+        headers: {
+          'X-Emby-Token': accessToken,
+          'Content-Type': 'application/json',
+          'X-Emby-Authorization': 'MediaBrowser Client="FlutterApp", Device="FlutterApp", DeviceId="flutter_app_id", Version="1.0.0"',
+        },
+        body: json.encode({
+          'DeviceProfile': {
+            'MaxStreamingBitrate': videoBitrate,
+            'TranscodingProfiles': [
+              {
+                'Container': 'ts',
+                'Type': 'Video',
+                'AudioCodec': 'aac',
+                'VideoCodec': 'h264',
+                'Context': 'Streaming',
+                'Protocol': 'hls'
+              }
+            ]
+          },
+          'DirectPlayProfiles': [],
+          'EnableDirectPlay': false,
+          'EnableDirectStream': false,
+          'MaxAudioChannels': 2,
+          'SupportsDirectPlay': false,
+          'SupportsDirectStream': false,
+          'SupportsTranscoding': true,
+        }),
+      ).timeout(const Duration(seconds: 5));
+
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        final List<dynamic> mediaSources = data['MediaSources'] ?? [];
+        if (mediaSources.isEmpty) {
+          throw Exception('No media sources found');
+        }
+        final mediaSourceId = mediaSources.first['Id'];
+        return '$serverUrl/Videos/$itemId/master.m3u8'
+            '?MediaSourceId=$mediaSourceId'
+            '&api_key=$accessToken'
+            '&VideoCodec=h264'
+            '&AudioCodec=aac'
+            '&VideoBitrate=$videoBitrate'
+            '&MaxWidth=$maxWidth'
+            '&MaxHeight=$maxHeight'
+            '&TranscodingContainer=ts'
+            '&SegmentContainer=ts';
+      } else {
+        throw Exception('Failed to get playback info: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error getting quality URL: $e');
       return '$serverUrl/Videos/$itemId/master.m3u8?MediaSourceId=$itemId&api_key=$accessToken';
     }
   }

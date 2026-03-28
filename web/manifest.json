@@ -1,11 +1,11 @@
 {
-    "name": "test_sample",
-    "short_name": "test_sample",
+    "name": "RM Live",
+    "short_name": "RM Live",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "RM Live app.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

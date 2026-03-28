@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -13,10 +14,12 @@ import 'video_grid_screen.dart';
 import 'video_player_screen.dart';
 import 'login_screen.dart';
 
+
 class HomeScreen extends StatefulWidget {
   final User user;
+  final bool initialServerAvailable;
 
-  const HomeScreen({Key? key, required this.user}) : super(key: key);
+  const HomeScreen({Key? key, required this.user, this.initialServerAvailable = true}) : super(key: key);
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -25,6 +28,74 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
   LibraryModel? _selectedLibrary;
+  final Map<String, bool> _isExpanded = {};
+  bool _isRetrying = false;
+  late User _currentUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _currentUser = widget.user;
+    // Force portrait on home screen to prevent layout glitches after video
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+  }
+
+  Future<void> _handleRetry(BuildContext context, {required bool isLibraryTab}) async {
+    if (_isRetrying) return;
+    setState(() => _isRetrying = true);
+
+    try {
+      final authService = context.read<AuthService>();
+
+      // 1. If we don't have a valid session, try to log in first
+      if (_currentUser.accessToken.isEmpty || _currentUser.id.isEmpty) {
+        final credentials = await authService.getVideoCredentials();
+        final username = credentials['username'];
+        final password = credentials['password'];
+
+        if (username != null && password != null) {
+          try {
+            final loggedInUser = await authService.login(
+              _currentUser.serverUrl,
+              username,
+              password,
+            );
+            if (loggedInUser != null) {
+              setState(() {
+                _currentUser = loggedInUser;
+              });
+            }
+          } catch (e) {
+            debugPrint('Retry login failed: $e');
+            // Continue anyway, maybe it was a transient error and we have a session now?
+          }
+        }
+      }
+
+      // 2. Trigger the appropriate cubit load
+      if (mounted) {
+        if (isLibraryTab) {
+          context.read<LibraryCubit>().loadLibraries(
+                _currentUser.serverUrl,
+                _currentUser.id,
+                _currentUser.accessToken,
+              );
+        } else {
+          context.read<VideoCubit>().loadAllVideos(
+                _currentUser.serverUrl,
+                _currentUser.id,
+                _currentUser.accessToken,
+              );
+        }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isRetrying = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -44,76 +115,68 @@ class _HomeScreenState extends State<HomeScreen> {
             _selectedLibrary = null;
           });
         } else {
-           // Allow app to exit or minimize if on root of tabs
-           // For now, we can just let system handle it if we want to exit, 
-           // but strictly 'canPop: false' prevents it. 
-           // We'll mimic default behavior for root:
-           // Navigator.of(context).pop(); // This would exit the app
-           // But since we are at root, we might want to minimize.
-           // Ideally, we should check if we can pop.
-           // For simplicity, if not in library detail, we exit.
            final navigator = Navigator.of(context);
            if (navigator.canPop()) {
              navigator.pop();
            } 
-           // If we can't pop (root), we don't do anything (effectively disabling back button for exit)
-           // or we can allow exit.
-           // Let's allow exit if not in nested state.
-           // Actually, 'onPopInvoked' with 'canPop: false' means we must handle it.
-           // SystemNavigator.pop() is better for root.
         }
       },
-      child: Scaffold(
-        extendBodyBehindAppBar: true,
-        body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                Color(0xFF002B38), // Top (Lighter Teal/Blue)
-                Color(0xFF00151C), // Bottom (Darker)
+      child: OrientationBuilder(
+        builder: (context, orientation) {
+          final size = MediaQuery.of(context).size;
+          return Scaffold(
+            extendBodyBehindAppBar: true,
+            body: Container(
+              width: size.width,
+              height: size.height,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Color(0xFF002B38), // Top (Lighter Teal/Blue)
+                    Color(0xFF00151C), // Bottom (Darker)
+                  ],
+                ),
+              ),
+              child: _buildBody(context),
+            ),
+            bottomNavigationBar: BottomNavigationBar(
+              currentIndex: _currentIndex,
+              onTap: (index) {
+                if (index == _currentIndex && index == 1 && _selectedLibrary != null) {
+                   setState(() {
+                     _selectedLibrary = null;
+                   });
+                } else {
+                  setState(() {
+                    _currentIndex = index;
+                    if (index != 1) {
+                      _selectedLibrary = null;
+                    }
+                  });
+                }
+              },
+              backgroundColor: const Color(0xFF001116),
+              selectedItemColor: accentBlue,
+              unselectedItemColor: mutedIconColor,
+              showUnselectedLabels: true,
+              type: BottomNavigationBarType.fixed,
+              selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
+              unselectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
+              items: const [
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.calendar_today),
+                  label: 'Home',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.library_books),
+                  label: 'Library',
+                ),
               ],
             ),
-          ),
-          child: _buildBody(context), // Removed SafeArea to fix header gaps
-        ),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _currentIndex,
-          onTap: (index) {
-            if (index == _currentIndex && index == 1 && _selectedLibrary != null) {
-               // If tapping Library again while in detail, go back to list
-               setState(() {
-                 _selectedLibrary = null;
-               });
-            } else {
-              setState(() {
-                _currentIndex = index;
-                if (index != 1) {
-                  _selectedLibrary = null; // Reset library selection when switching tabs
-                }
-              });
-            }
-          },
-          backgroundColor: const Color(0xFF001116), // Very dark footer
-          selectedItemColor: accentBlue,
-          unselectedItemColor: mutedIconColor,
-          showUnselectedLabels: true,
-          type: BottomNavigationBarType.fixed,
-          selectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
-          unselectedLabelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w400),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.calendar_today), // Or similar "Today" icon
-              label: 'Home',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.library_books),
-              label: 'Library',
-            ),
-            // Removed Logout as requested
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -128,61 +191,55 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeTab() {
-    final double statusBarHeight = MediaQuery.of(context).padding.top;
-    
     return BlocProvider(
-      create: (context) => VideoCubit(context.read<VideoService>())
-        ..loadAllVideos(widget.user.serverUrl, widget.user.id, widget.user.accessToken),
+      create: (context) {
+        final cubit = VideoCubit(context.read<VideoService>());
+        if (widget.initialServerAvailable) {
+          cubit.loadAllVideos(_currentUser.serverUrl, _currentUser.id, _currentUser.accessToken);
+        } else {
+          // Manually trigger error state if we already know server is down
+          cubit.triggerError('SocketException: Video server not available');
+        }
+        return cubit;
+      },
       child: Column(
         children: [
           // Header Banner
-          Container(
-            height: statusBarHeight + 100, // Reduced height as requested
+          SizedBox(
+            height: 120, // Fixed height for header
             width: double.infinity,
-            decoration: const BoxDecoration(
-              color: Color(0xFF002B38),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black26,
-                  blurRadius: 10,
-                  offset: Offset(0, 5),
-                ),
-              ],
-            ),
             child: Stack(
               children: [
-                // Header Image filling the whole area
+                // Header Image
                 Positioned.fill(
                   child: Image.asset(
                     'assets/header.jpg',
-                    fit: BoxFit.cover, // Ensures image covers the entire header area
+                    fit: BoxFit.cover,
                     errorBuilder: (context, error, stackTrace) {
-                       return Container(
-                         decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: [Color(0xFF002B38), Color(0xFF00151C)],
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                            ),
-                         ),
-                         child: Center(
-                           child: Text(
-                             'RESURRECTION\nMINISTRIES', 
-                             textAlign: TextAlign.center,
-                             style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                               color: Colors.white,
-                               fontWeight: FontWeight.bold,
-                               fontFamily: 'Serif',
-                               letterSpacing: 1.2,
-                             ),
-                           ),
-                         ),
-                       );
+                      return Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Color(0xFF002B38), Color(0xFF00151C)],
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(
+                            'RESURRECTION\nMINISTRIES',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Serif',
+                                  letterSpacing: 1.2,
+                                ),
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ),
-                
-                // Optional: Subtle gradient overlay for better text contrast if needed
                 Positioned.fill(
                   child: Container(
                     decoration: BoxDecoration(
@@ -200,31 +257,59 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          
           Expanded(
             child: BlocBuilder<VideoCubit, VideoState>(
               builder: (context, state) {
                 if (state is VideoLoading) {
                   return const Center(child: CircularProgressIndicator(color: Color(0xFF3B6DCC)));
                 } else if (state is VideoError) {
+                  final isServerDown = state.message.toLowerCase().contains('socketexception') || 
+                                     state.message.toLowerCase().contains('httpexception') ||
+                                     state.message.toLowerCase().contains('connection refused');
+                  
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
-                        const SizedBox(height: 16),
-                        const Text('Unable to load videos', style: TextStyle(color: Colors.white70)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => context.read<VideoCubit>().loadAllVideos(
-                                widget.user.serverUrl,
-                                widget.user.id,
-                                widget.user.accessToken,
-                              ),
-                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B6DCC)),
-                          child: const Text('Retry', style: TextStyle(color: Colors.white)),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.cloud_off, size: 64, color: Colors.redAccent),
+                          const SizedBox(height: 24),
+                          Text(
+                            isServerDown ? 'VIDEO SERVER NOT AVAILABLE' : 'UNABLE TO LOAD VIDEOS',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            isServerDown 
+                              ? 'Please check your internet connection or try again later.'
+                              : 'An unexpected error occurred while fetching videos.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          ElevatedButton.icon(
+                            onPressed: _isRetrying ? null : () => _handleRetry(context, isLibraryTab: false),
+                            icon: _isRetrying 
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.refresh, color: Colors.white),
+                            label: Text(_isRetrying ? 'RETRYING...' : 'RETRY CONNECTION', style: const TextStyle(color: Colors.white)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B6DCC),
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 } else if (state is VideoLoaded) {
@@ -350,16 +435,63 @@ class _HomeScreenState extends State<HomeScreen> {
           
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
-              video.description.isNotEmpty ? video.description : 'No description available.',
-              style: GoogleFonts.poppins(
-                textStyle: Theme.of(context).textTheme.bodyMedium,
-                color: Colors.white70,
-                height: 1.5,
-                fontWeight: FontWeight.w400, // Regular
-              ),
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isExpanded = _isExpanded[video.id] ?? false;
+                final text = video.description.isNotEmpty ? video.description : 'No description available.';
+                final textSpan = TextSpan(
+                  text: text,
+                  style: GoogleFonts.poppins(
+                    textStyle: Theme.of(context).textTheme.bodyMedium,
+                    color: Colors.white70,
+                    height: 1.5,
+                    fontWeight: FontWeight.w400,
+                  ),
+                );
+
+                final textPainter = TextPainter(
+                  text: textSpan,
+                  maxLines: 3,
+                  textDirection: TextDirection.ltr,
+                )..layout(maxWidth: constraints.maxWidth);
+
+                final isTextOverflowing = textPainter.didExceedMaxLines;
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      text,
+                      maxLines: isExpanded ? null : 3,
+                      overflow: isExpanded ? null : TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        textStyle: Theme.of(context).textTheme.bodyMedium,
+                        color: Colors.white70,
+                        height: 1.5,
+                        fontWeight: FontWeight.w400,
+                      ),
+                    ),
+                    if (isTextOverflowing)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8.0),
+                        child: GestureDetector(
+                          onTap: () {
+                            setState(() {
+                              _isExpanded[video.id] = !isExpanded;
+                            });
+                          },
+                          child: Text(
+                            isExpanded ? 'Show Less' : 'Read More...',
+                            style: GoogleFonts.poppins(
+                              color: const Color(0xFF3B6DCC),
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                );
+              },
             ),
           ),
           
@@ -376,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
                    Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => VideoPlayerScreen(video: video, user: widget.user),
+                      builder: (context) => VideoPlayerScreen(video: video, user: _currentUser),
                     ),
                   );
                 },
@@ -408,7 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildLibraryTab() {
     if (_selectedLibrary != null) {
       return VideoGridScreen(
-        user: widget.user,
+        user: _currentUser,
         library: _selectedLibrary!,
         onBack: () {
           setState(() {
@@ -419,8 +551,15 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return BlocProvider(
-      create: (context) => LibraryCubit(context.read<VideoService>())
-        ..loadLibraries(widget.user.serverUrl, widget.user.id, widget.user.accessToken),
+      create: (context) {
+        final cubit = LibraryCubit(context.read<VideoService>());
+        if (widget.initialServerAvailable) {
+          cubit.loadLibraries(_currentUser.serverUrl, _currentUser.id, _currentUser.accessToken);
+        } else {
+          cubit.triggerError('SocketException: Video server not available');
+        }
+        return cubit;
+      },
       child: Column(
         children: [
            SizedBox(
@@ -463,21 +602,53 @@ class _HomeScreenState extends State<HomeScreen> {
                 if (state is LibraryLoading) {
                   return const Center(child: CircularProgressIndicator());
                 } else if (state is LibraryError) {
+                  final isServerDown = state.message.toLowerCase().contains('socketexception') || 
+                                     state.message.toLowerCase().contains('httpexception') ||
+                                     state.message.toLowerCase().contains('connection refused');
+                  
                   return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('Unable to load libraries', style: TextStyle(color: Colors.white)),
-                        const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: () => context.read<LibraryCubit>().loadLibraries(
-                                widget.user.serverUrl,
-                                widget.user.id,
-                                widget.user.accessToken,
-                              ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
+                    child: Padding(
+                      padding: const EdgeInsets.all(20.0),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.cloud_off, size: 64, color: Colors.redAccent),
+                          const SizedBox(height: 24),
+                          Text(
+                            isServerDown ? 'VIDEO SERVER NOT AVAILABLE' : 'UNABLE TO LOAD LIBRARIES',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Text(
+                            isServerDown 
+                              ? 'Please check your internet connection or try again later.'
+                              : 'An unexpected error occurred while fetching your library.',
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.poppins(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          ElevatedButton.icon(
+                            onPressed: _isRetrying ? null : () => _handleRetry(context, isLibraryTab: true),
+                            icon: _isRetrying 
+                                ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                                : const Icon(Icons.refresh, color: Colors.white),
+                            label: Text(_isRetrying ? 'RETRYING...' : 'RETRY CONNECTION', style: const TextStyle(color: Colors.white)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF3B6DCC),
+                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 } else if (state is LibraryLoaded) {

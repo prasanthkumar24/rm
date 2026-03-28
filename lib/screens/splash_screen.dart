@@ -22,41 +22,77 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> _initializeApp() async {
-    // Artificial delay to ensure splash is visible for at least a moment (optional)
-    await Future.delayed(const Duration(seconds: 3));
-
     try {
+      await Future.delayed(const Duration(seconds: 2));
+
       // Initialize Hive
       await Hive.initFlutter();
-      if (!Hive.isAdapterRegistered(0)) { // Assuming VideoModelAdapter id is 0 or similar, checking registration
+      if (!Hive.isAdapterRegistered(0)) {
          Hive.registerAdapter(VideoModelAdapter());
       }
       
-      // Check session
       final authService = AuthService();
-      User? user = await authService.getSession();
 
-      if (user != null) {
-        // Verify if the session is still valid on the server
-        final isValid = await authService.validateSession(user);
-        if (!isValid) {
-          // Session is invalid (expired or revoked), clear it
-          await authService.logout();
-          user = null;
+      // Check if user has ever authenticated via mobile
+      final bool isMobileAuthenticated = await authService.isMobileAuthenticated();
+
+      if (isMobileAuthenticated) {
+        // User has logged in with OTP before, go straight to home screen logic
+        User? user = await authService.getSession();
+        bool isServerAvailable = true;
+
+        // Try to do a fresh login if we have credentials
+        final credentials = await authService.getVideoCredentials();
+        final username = credentials['username'];
+        final password = credentials['password'];
+
+        if (username != null && password != null) {
+          try {
+            // Attempt a fresh login on every app start
+            final freshUser = await authService.login(
+              user?.serverUrl ?? 'https://rmvideo.in',
+              username,
+              password,
+            );
+            if (freshUser != null) {
+              user = freshUser;
+              isServerAvailable = true;
+            }
+          } catch (e) {
+            debugPrint('Automatic login failed on splash: $e');
+            isServerAvailable = false;
+            // If fresh login fails, we still have the cached session from getSession()
+            // If user is null, we'll use a dummy user below.
+          }
+        } else if (user != null) {
+          // If no credentials saved, just validate the existing session
+          final result = await authService.validateSession(user);
+          isServerAvailable = result.isServerAvailable;
+          if (!result.isValid) {
+            await authService.logout(); // Clear server-specific data, but not mobile auth flag
+            user = null;
+          }
         }
-      }
 
-      // If no valid session exists, we don't auto-login here anymore
-      // because we want the user to go through the Mobile OTP flow.
-      // The auto-login to Jellyfin happens inside OtpVerificationScreen.
+        if (user == null) {
+          // Fallback if no user exists and login failed
+          user = User(id: '', name: '', accessToken: '', serverUrl: 'https://rmvideo.in');
+          isServerAvailable = false;
+        }
 
-      if (mounted) {
-        if (user != null) {
+        if (mounted) {
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => HomeScreen(user: user!)),
+            MaterialPageRoute(
+              builder: (_) => HomeScreen(
+                user: user!,
+                initialServerAvailable: isServerAvailable,
+              ),
+            ),
           );
-        } else {
-          // If no session, go to Mobile Login instead of Jellyfin Login
+        }
+      } else {
+        // First-time user, go to mobile login
+        if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (_) => const MobileLoginScreen()),
           );

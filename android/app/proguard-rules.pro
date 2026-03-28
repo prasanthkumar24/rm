@@ -8,14 +8,14 @@
 -keep class com.google.android.gms.internal.** { *; }
 
 # Hive
--keep class com.example.test_sample.models.** { *; }
+-keep class com.rm.live.models.** { *; }
 -keep class io.hive.** { *; }
 
 # For Google Fonts and other reflection based plugins
 -keep class com.google.fonts.** { *; }
 
 # Prevent obfuscation of specific models if needed
--keep class com.example.test_sample.models.** { *; }
+-keep class com.rm.live.models.** { *; }
 
 # Fix R8 missing class errors for Play Core
 -dontwarn com.google.android.play.core.**

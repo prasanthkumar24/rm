@@ -5,12 +5,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 
+class SessionValidationResult {
+  final bool isValid;
+  final bool isServerAvailable;
+  SessionValidationResult({required this.isValid, required this.isServerAvailable});
+}
+
 class AuthService {
   static const String _kServerUrlKey = 'server_url';
   static const String _kAccessTokenKey = 'access_token';
   static const String _kUserIdKey = 'user_id';
   static const String _kUserNameKey = 'user_name';
   static const String _kDeviceIdKey = 'device_id';
+  static const String _kMobileAuthenticatedKey = 'mobile_authenticated';
+  static const String _kVideoUsernameKey = 'video_username';
+  static const String _kVideoPasswordKey = 'video_password';
 
   static const String _kBaseOtpUrl = 'https://api.rmoffice.online';
 
@@ -147,6 +156,20 @@ class AuthService {
     await prefs.setString(_kUserNameKey, user.name);
   }
 
+  Future<void> saveVideoCredentials(String username, String password) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kVideoUsernameKey, username);
+    await prefs.setString(_kVideoPasswordKey, password);
+  }
+
+  Future<Map<String, String?>> getVideoCredentials() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {
+      'username': prefs.getString(_kVideoUsernameKey),
+      'password': prefs.getString(_kVideoPasswordKey),
+    };
+  }
+
   Future<User?> getSession() async {
     final prefs = await SharedPreferences.getInstance();
     final serverUrl = prefs.getString(_kServerUrlKey);
@@ -170,14 +193,29 @@ class AuthService {
     await prefs.clear();
   }
 
-  Future<bool> validateSession(User user) async {
+  Future<SessionValidationResult> validateSession(User user) async {
     final url = Uri.parse('${user.serverUrl}/Users/Me?api_key=${user.accessToken}');
     try {
-      final response = await http.get(url);
-      return response.statusCode == 200;
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
+      if (response.statusCode == 401) {
+        return SessionValidationResult(isValid: false, isServerAvailable: true);
+      }
+      return SessionValidationResult(isValid: true, isServerAvailable: true);
     } catch (e) {
-      debugPrint('Session validation error: $e');
-      return false;
+      debugPrint('Session validation error (likely unreachable): $e');
+      // If server is unreachable, we still consider the session "valid" (cached)
+      // but we mark the server as unavailable.
+      return SessionValidationResult(isValid: true, isServerAvailable: false);
     }
+  }
+
+  Future<void> setMobileAuthenticated() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kMobileAuthenticatedKey, true);
+  }
+
+  Future<bool> isMobileAuthenticated() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_kMobileAuthenticatedKey) ?? false;
   }
 }

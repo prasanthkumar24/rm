@@ -28,4 +28,8 @@ class LibraryCubit extends Cubit<LibraryState> {
       emit(LibraryError(e.toString()));
     }
   }
+
+  void triggerError(String message) {
+    emit(LibraryError(message));
+  }
 }

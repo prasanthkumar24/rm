@@ -1,7 +1,7 @@
-name: test_sample
-description: "A new Flutter project."
+name: rm_live
+description: "RM Live app."
 publish_to: 'none'
-version: 2.0.1+2
+version: 3.0.0+3
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

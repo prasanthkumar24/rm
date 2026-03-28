@@ -53,4 +53,8 @@ class VideoCubit extends Cubit<VideoState> {
       emit(VideoError(e.toString()));
     }
   }
+
+  void triggerError(String message) {
+    emit(VideoError(message));
+  }
 }

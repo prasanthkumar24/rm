@@ -3,9 +3,13 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter/services.dart';
 import 'screens/splash_screen.dart';
 import 'services/video_service.dart';
+import 'services/auth_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
     statusBarColor: Colors.transparent,
     statusBarIconBrightness: Brightness.light,
@@ -18,8 +22,11 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return RepositoryProvider(
-      create: (context) => VideoService(),
+    return MultiRepositoryProvider(
+      providers: [
+        RepositoryProvider(create: (context) => VideoService()),
+        RepositoryProvider(create: (context) => AuthService()),
+      ],
       child: MaterialApp(
         title: 'RM LIVE',
         debugShowCheckedModeBanner: false,

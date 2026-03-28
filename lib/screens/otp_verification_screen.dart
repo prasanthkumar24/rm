@@ -4,7 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 import '../services/auth_service.dart';
 import 'home_screen.dart';
-
+import '../models/user_model.dart';
 class OtpVerificationScreen extends StatefulWidget {
   final String mobileNumber;
 
@@ -23,7 +23,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
   
   // Timer related
   Timer? _timer;
-  int _start = 60;
+  int _start = 300;
   bool _canResend = false;
 
   @override
@@ -34,7 +34,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
   void startTimer() {
     setState(() {
-      _start = 60;
+      _start = 300;
       _canResend = false;
     });
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -49,6 +49,12 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
         });
       }
     });
+  }
+
+  String _formatRemaining() {
+    final minutes = (_start ~/ 60).toString().padLeft(2, '0');
+    final seconds = (_start % 60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   @override
@@ -107,26 +113,46 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
       
       if (mounted) {
         if (response['status'] == 'success') {
-          try {
-            // Use credentials returned from the API
-            final String jellyfinUsername = response['jellyfin_user_name'] ?? 'Appuser';
-            final String jellyfinPassword = response['jellyfin_password'] ?? 'Smiles123\$';
+          // 1. Set the mobile authenticated flag permanently
+          await _authService.setMobileAuthenticated();
 
-            final user = await _authService.login(
+          // 2. Save video server credentials so we can retry login if server is down
+          final String jellyfinUsername = response['jellyfin_user_name'] ?? 'Appuser';
+          final String jellyfinPassword = response['jellyfin_password'] ?? 'Smiles123\$';
+          await _authService.saveVideoCredentials(jellyfinUsername, jellyfinPassword);
+
+          // 3. Attempt to log in to the video server, but don't block navigation
+          bool isServerAvailable = true;
+          User? user;
+          try {
+            user = await _authService.login(
               'https://rmvideo.in',
               jellyfinUsername,
               jellyfinPassword,
             );
-            
-            if (mounted && user != null) {
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (context) => HomeScreen(user: user)),
-                (route) => false,
-              );
-            }
           } catch (e) {
-             setState(() => _error = 'VIDEO SERVER LOGIN FAILED. PLEASE TRY LATER.');
+            debugPrint('Video server login failed during OTP verification: $e');
+            isServerAvailable = false;
+            // Create a dummy user object to allow navigation to home screen
+            user = await _authService.getSession(); // Get cached user if available
+            if (user == null) {
+              // If no cached user, create a temporary one to pass to home screen
+              user = User(id: '', name: '', accessToken: '', serverUrl: 'https://rmvideo.in');
+            }
+          }
+          
+          // 4. Always navigate to home screen
+          if (mounted && user != null) {
+            Navigator.pushAndRemoveUntil(
+              context,
+              MaterialPageRoute(
+                builder: (context) => HomeScreen(
+                  user: user!,
+                  initialServerAvailable: isServerAvailable,
+                ),
+              ),
+              (route) => false,
+            );
           }
         } else {
           setState(() => _error = response['message'] ?? 'INVALID OTP. PLEASE TRY AGAIN.');
@@ -294,7 +320,7 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
                     ),
                     if (!_canResend)
                       Text(
-                        '00:${_start.toString().padLeft(2, '0')}',
+                        _formatRemaining(),
                         style: GoogleFonts.poppins(
                           fontSize: 14,
                           fontWeight: FontWeight.bold,
